@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=600, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Ray-Ban Live Translate V2 - 30 Languages</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+body{background:#000;color:#fff;font-family:-apple-system,sans-serif;width:600px;height:600px;overflow:hidden;display:flex;justify-content:center;align-items:center}
+.hud{width:600px;height:600px;background:#000;display:flex;flex-direction:column;position:relative;border-radius:18px;overflow:hidden;border:2px solid #222}
+.header{height:40px;display:flex;align-items:center;justify-content:space-between;padding:0 12px;background:#1a1a1a;border-bottom:1px solid #2a2a2a;flex-shrink:0;z-index:10}
+.logo{font-weight:900;font-size:13px;display:flex;align-items:center;gap:6px}
+.badge{font-size:9px;background:#00ff88;color:#000;padding:2px 6px;border-radius:4px;font-weight:800}
+.view{flex:1;position:relative;background:#000;overflow:hidden}
+#video{width:100%;height:100%;object-fit:cover;transform:scaleX(-1)}
+#canvas{display:none}
+.trans-box{position:absolute;left:8px;right:8px;bottom:62px;background:rgba(0,0,0,.88);border:1px solid #00ff88;border-radius:12px;padding:10px;backdrop-filter:blur(8px);max-height:160px;overflow-y:auto}
+.trans-box .orig{font-size:10px;color:#888;margin-bottom:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.trans-box .trans{font-size:15px;color:#fff;font-weight:800;line-height:1.35;word-break:break-all}
+.controls{height:52px;display:flex;gap:5px;padding:5px;background:#1a1a1a;border-top:1px solid #2a2a2a;flex-shrink:0;z-index:10}
+.ctrl{flex:1;background:#2a2a2a;border:0;color:#fff;padding:10px;border-radius:10px;font-weight:800;font-size:12px}
+.ctrl.big{flex:1.5;background:#00ff88;color:#000;font-size:14px}
+.ctrl:active{transform:scale(0.96)}
+.status{height:20px;padding:0 10px;background:#000;display:flex;justify-content:space-between;align-items:center;font-size:9px;color:#666;flex-shrink:0}
+.lang-row{display:flex;gap:4px;padding:5px;background:#0f0f0f;border-top:1px solid #222;flex-shrink:0}
+.lang-row select{flex:1;background:#1e1e1e;color:#fff;border:1px solid #333;border-radius:8px;padding:7px;font-size:11px;font-weight:700}
+.center{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;background:rgba(0,0,0,.92);z-index:20;padding:16px}
+.center b{color:#fff;font-size:17px}
+.center p{color:#888;font-size:11px;text-align:center;line-height:1.4}
+.lang-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:4px;margin-top:8px;width:100%;max-height:120px;overflow-y:auto}
+.lang-grid button{background:#1e1e1e;border:1px solid #333;color:#aaa;padding:6px;border-radius:6px;font-size:10px}
+.lang-grid button.active{background:#00ff88;color:#000;border-color:#00ff88;font-weight:800}
+</style>
+</head>
+<body>
+<div class="hud">
+  <div class="header">
+    <div class="logo">🌐 Live Translate <span class="badge">30 LANGS</span></div>
+    <div style="font-size:9px;color:#00ff88">30개 언어 지원</div>
+  </div>
+  <div class="view" id="view">
+    <video id="video" autoplay playsinline muted></video>
+    <canvas id="canvas"></canvas>
+    <div id="transBox" class="trans-box" style="display:none">
+      <div class="orig" id="origText">Original</div>
+      <div class="trans" id="transText">번역 중...</div>
+    </div>
+    <div id="startScreen" class="center">
+      <b>📷 30개 언어 실시간 번역</b>
+      <p>아래에서 원본 언어와 번역할 언어 선택<br>카메라 시작하면 자동 번역</p>
+      <div class="lang-grid" id="quickLangs"></div>
+      <button onclick="startCam()" style="background:#00ff88;color:#000;border:0;padding:14px 24px;border-radius:12px;font-weight:900;margin-top:8px;width:100%">카메라 시작</button>
+    </div>
+  </div>
+  <div class="lang-row">
+    <select id="fromLang"></select>
+    <select id="toLang"></select>
+  </div>
+  <div class="lang-row" style="padding-top:0">
+    <select id="mode"><option value="auto">자동 2.5초</option><option value="manual">수동만</option><option value="fast">빠르게 1.5초</option></select>
+    <button onclick="swapLang()" style="background:#1e1e1e;color:#00ff88;border:1px solid #333;border-radius:8px;padding:7px 10px;font-size:11px;font-weight:800">⇄ 교체</button>
+  </div>
+  <div class="controls">
+    <button class="ctrl" onclick="captureAndTranslate()">📸 번역</button>
+    <button class="ctrl big" id="autoBtn" onclick="toggleAuto()">⏸️ 자동 중지</button>
+    <button class="ctrl" onclick="clearTrans()">지우기</button>
+  </div>
+  <div class="status"><span id="status">언어 선택 후 시작</span><span id="fps">30 languages</span></div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+<script>
+const LANGUAGES = [
+  {code:'eng', tess:'eng', trans:'en', name:'영어', flag:'🇺🇸'},
+  {code:'kor', tess:'kor', trans:'ko', name:'한글', flag:'🇰🇷'},
+  {code:'jpn', tess:'jpn', trans:'ja', name:'일본어', flag:'🇯🇵'},
+  {code:'chi_sim', tess:'chi_sim', trans:'zh', name:'중국어 간체', flag:'🇨🇳'},
+  {code:'chi_tra', tess:'chi_tra', trans:'zh-TW', name:'중국어 번체', flag:'🇹🇼'},
+  {code:'spa', tess:'spa', trans:'es', name:'스페인어', flag:'🇪🇸'},
+  {code:'fra', tess:'fra', trans:'fr', name:'프랑스어', flag:'🇫🇷'},
+  {code:'deu', tess:'deu', trans:'de', name:'독일어', flag:'🇩🇪'},
+  {code:'ita', tess:'ita', trans:'it', name:'이탈리아어', flag:'🇮🇹'},
+  {code:'rus', tess:'rus', trans:'ru', name:'러시아어', flag:'🇷🇺'},
+  {code:'por', tess:'por', trans:'pt', name:'포르투갈어', flag:'🇵🇹'},
+  {code:'ara', tess:'ara', trans:'ar', name:'아랍어', flag:'🇸🇦'},
+  {code:'tha', tess:'tha', trans:'th', name:'태국어', flag:'🇹🇭'},
+  {code:'vie', tess:'vie', trans:'vi', name:'베트남어', flag:'🇻🇳'},
+  {code:'hin', tess:'hin', trans:'hi', name:'힌디어', flag:'🇮🇳'},
+  {code:'ind', tess:'ind', trans:'id', name:'인도네시아어', flag:'🇮🇩'},
+  {code:'msa', tess:'msa', trans:'ms', name:'말레이어', flag:'🇲🇾'},
+  {code:'fil', tess:'fil', trans:'tl', name:'필리핀어', flag:'🇵🇭'},
+  {code:'tur', tess:'tur', trans:'tr', name:'터키어', flag:'🇹🇷'},
+  {code:'nld', tess:'nld', trans:'nl', name:'네덜란드어', flag:'🇳🇱'},
+  {code:'pol', tess:'pol', trans:'pl', name:'폴란드어', flag:'🇵🇱'},
+  {code:'ukr', tess:'ukr', trans:'uk', name:'우크라이나어', flag:'🇺🇦'},
+  {code:'ell', tess:'ell', trans:'el', name:'그리스어', flag:'🇬🇷'},
+  {code:'heb', tess:'heb', trans:'he', name:'히브리어', flag:'🇮🇱'},
+  {code:'ben', tess:'ben', trans:'bn', name:'벵골어', flag:'🇧🇩'},
+  {code:'tam', tess:'tam', trans:'ta', name:'타밀어', flag:'🇮🇳'},
+  {code:'tel', tess:'tel', trans:'te', name:'텔루구어', flag:'🇮🇳'},
+  {code:'kan', tess:'kan', trans:'kn', name:'칸나다어', flag:'🇮🇳'},
+  {code:'mal', tess:'mal', trans:'ml', name:'말라얄람어', flag:'🇮🇳'},
+  {code:'mya', tess:'mya', trans:'my', name:'미얀마어', flag:'🇲🇲'},
+];
+
+const fromSel=document.getElementById('fromLang');
+const toSel=document.getElementById('toLang');
+LANGUAGES.forEach(l=>{
+  const o1=document.createElement('option'); o1.value=l.code; o1.textContent=`${l.flag} ${l.name} →`; fromSel.appendChild(o1);
+  const o2=document.createElement('option'); o2.value=l.code; o2.textContent=`→ ${l.flag} ${l.name}`; toSel.appendChild(o2);
+});
+fromSel.value='eng'; toSel.value='kor';
+
+// Quick buttons
+const quick=document.getElementById('quickLangs');
+['eng','jpn','chi_sim','spa','fra','tha','vie','ara','rus'].forEach(code=>{
+  const lang=LANGUAGES.find(l=>l.code===code);
+  if(!lang) return;
+  const b=document.createElement('button');
+  b.textContent=`${lang.flag} ${lang.name}`;
+  b.onclick=()=>{ fromSel.value=code; toSel.value='kor'; document.querySelectorAll('.lang-grid button').forEach(x=>x.classList.remove('active')); b.classList.add('active'); };
+  quick.appendChild(b);
+});
+
+let stream=null, autoInterval=null, isAuto=true, worker=null, lastText='', currentTessLang='eng';
+
+async function initWorker(tessCode){
+  if(currentTessLang===tessCode && worker) return;
+  document.getElementById('status').textContent=`OCR 로딩: ${tessCode}...`;
+  try{
+    if(worker) await worker.terminate();
+    worker = await Tesseract.createWorker(tessCode);
+    currentTessLang=tessCode;
+    document.getElementById('status').textContent=`OCR 준비: ${tessCode} ✓`;
+  }catch(e){
+    document.getElementById('status').textContent='OCR 로딩 실패, 영어 사용';
+    worker = await Tesseract.createWorker('eng');
+    currentTessLang='eng';
+  }
+}
+
+async function startCam(){
+  try{
+    stream = await navigator.mediaDevices.getUserMedia({video:{facingMode:'environment', width:600, height:600}, audio:false});
+    document.getElementById('video').srcObject=stream;
+    document.getElementById('startScreen').style.display='none';
+    await initWorker(fromSel.value);
+    document.getElementById('status').textContent='카메라 시작됨 - 자동 번역 중';
+    startAuto();
+  }catch(e){
+    alert('카메라 권한 필요: '+e.message);
+  }
+}
+
+function getIntervalMs(){ const m=document.getElementById('mode').value; if(m==='fast') return 1500; if(m==='manual') return 0; return 2500; }
+function startAuto(){ 
+  const ms=getIntervalMs(); if(ms===0){ stopAuto(); return; }
+  isAuto=true; document.getElementById('autoBtn').textContent='⏸️ 자동 중지'; 
+  if(autoInterval) clearInterval(autoInterval); 
+  autoInterval=setInterval(()=>{ if(isAuto) captureAndTranslate(); }, ms); 
+}
+function stopAuto(){ isAuto=false; document.getElementById('autoBtn').textContent='▶️ 자동 시작'; if(autoInterval) clearInterval(autoInterval); }
+function toggleAuto(){ if(isAuto) stopAuto(); else startAuto(); }
+function swapLang(){ const f=fromSel.value; fromSel.value=toSel.value; toSel.value=f; }
+
+async function captureAndTranslate(){
+  const video=document.getElementById('video'); const canvas=document.getElementById('canvas');
+  if(!video.videoWidth) return;
+  canvas.width=video.videoWidth; canvas.height=video.videoHeight;
+  canvas.getContext('2d').drawImage(video,0,0);
+  
+  const fromCode=fromSel.value; const toCode=toSel.value;
+  const fromLangObj=LANGUAGES.find(l=>l.code===fromCode); const toLangObj=LANGUAGES.find(l=>l.code===toCode);
+  if(!fromLangObj || !toLangObj) return;
+  
+  if(currentTessLang!==fromLangObj.tess){ await initWorker(fromLangObj.tess); }
+  
+  document.getElementById('status').textContent='글자 인식 중...';
+  try{
+    const {data:{text}} = await worker.recognize(canvas);
+    const clean=text.trim().replace(/\n+/g,' ').slice(0,300);
+    if(!clean || clean.length<2){ document.getElementById('status').textContent='텍스트 없음'; return; }
+    if(clean===lastText) return;
+    lastText=clean;
+    document.getElementById('origText').textContent=`${fromLangObj.flag} ${clean}`;
+    document.getElementById('transBox').style.display='block';
+    document.getElementById('transText').textContent='번역 중...';
+    
+    // Translation - MyMemory supports 30+ languages
+    const source = fromLangObj.trans.split('-')[0];
+    const target = toLangObj.trans.split('-')[0];
+    let translated=clean;
+    try{
+      const res=await fetch(`https://api.mymemory.translated.net/get?q=${encodeURIComponent(clean)}&langpair=${source}|${target}`);
+      const json=await res.json();
+      translated=json.responseData?.translatedText || clean;
+      // MyMemory sometimes returns same text if not found, fallback to keep original
+      if(translated.toLowerCase()===clean.toLowerCase() && source!=='en'){
+        // try via English as pivot for better accuracy on rare pairs
+        const res2=await fetch(`https://api.mymemory.translated.net/get?q=${encodeURIComponent(clean)}&langpair=${source}|en`);
+        const json2=await res2.json();
+        const en=json2.responseData?.translatedText;
+        if(en && en!==clean){
+          const res3=await fetch(`https://api.mymemory.translated.net/get?q=${encodeURIComponent(en)}&langpair=en|${target}`);
+          const json3=await res3.json();
+          translated=json3.responseData?.translatedText || en;
+        }
+      }
+    }catch(e){ translated=`[번역 오류] ${clean}`; }
+    
+    document.getElementById('transText').textContent=`${toLangObj.flag} ${translated}`;
+    document.getElementById('status').textContent=`완료: ${fromLangObj.name} → ${toLangObj.name}`;
+  }catch(e){ document.getElementById('status').textContent='오류: '+e.message; }
+}
+
+function clearTrans(){ document.getElementById('transBox').style.display='none'; lastText=''; document.getElementById('status').textContent='지워짐'; }
+
+document.getElementById('mode').addEventListener('change', ()=>{ if(isAuto) startAuto(); });
+fromSel.addEventListener('change', async ()=>{ await initWorker(fromSel.value); });
+</script>
+</body>
+</html>
